@@ -57,7 +57,7 @@
     syncTopbar();
     syncRunNavBadge();
     console.log(
-      '%c数据质量业务活动 · 交互原型\n%c配置态 + 运行态 + 编排管理 + 链路追踪 · 外部系统全部 MOCK · file:// 离线可用\n打开控制台可见 [MOCK·系统] 调用日志横幅',
+      '%c数据质量平台 · 交互原型\n%c配置态 + 运行态 + 编排管理 + 链路追踪 · 外部系统全部 MOCK · file:// 离线可用\n打开控制台可见 [MOCK·系统] 调用日志横幅',
       'font-size:16px;font-weight:bold;color:#4f7cff', 'color:#9fb0d9'
     );
   });
