@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据质量 Agent · 设计文档中心</title>
+<style>
+:root{
+  --bg:#0b1020;            /* 深色科技底 */
+  --bg-soft:#121a33;
+  --panel:#161f3d;
+  --panel-2:#1d294e;
+  --line:#2a3766;
+  --text:#e8edff;
+  --text-dim:#9fb0d9;
+  --primary:#4f7cff;       /* 主蓝 */
+  --primary-2:#6ea8ff;
+  --teal:#2dd4bf;          /* 强调青 */
+  --amber:#f5b544;         /* Gate/警告 */
+  --danger:#ff5c7a;
+  --ok:#37d67a;
+  --radius:14px;
+  --mono:'JetBrains Mono','Cascadia Code',Consolas,monospace;
+  --sans:'Inter','PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  min-height:100vh;
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(79,124,255,.16), transparent 60%),
+    radial-gradient(800px 460px at 92% 4%, rgba(45,212,191,.11), transparent 62%),
+    radial-gradient(700px 600px at 50% 110%, rgba(79,124,255,.08), transparent 55%),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:56px 28px 72px}
+
+/* ===== Header ===== */
+.eyebrow{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
+  color:var(--primary-2);text-transform:uppercase;
+  background:rgba(79,124,255,.10);
+  border:1px solid rgba(79,124,255,.28);
+  border-radius:999px;padding:6px 14px;margin-bottom:22px;
+}
+.eyebrow .pulse{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--teal);
+  box-shadow:0 0 0 0 rgba(45,212,191,.5);
+  animation:pulse 2.4s ease-out infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(45,212,191,.45)}
+  70%{box-shadow:0 0 0 8px rgba(45,212,191,0)}
+  100%{box-shadow:0 0 0 0 rgba(45,212,191,0)}
+}
+h1{
+  font-size:clamp(28px,4.6vw,42px);
+  font-weight:800;letter-spacing:-.01em;line-height:1.25;
+  margin-bottom:12px;
+}
+h1 .sep{color:var(--primary);padding:0 .12em}
+h1 .grad{
+  background:linear-gradient(92deg,var(--primary-2) 10%,var(--teal) 90%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.sub{color:var(--text-dim);font-size:15.5px;max-width:640px;margin-bottom:20px}
+.sub strong{color:var(--text);font-weight:600}
+.meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.tag{
+  font-family:var(--mono);font-size:12px;
+  color:var(--text-dim);
+  background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:4px 12px;
+}
+.tag-ver{color:var(--text);background:rgba(79,124,255,.14);border-color:rgba(79,124,255,.4)}
+.tag-teal{color:var(--teal);background:rgba(45,212,191,.10);border-color:rgba(45,212,191,.32)}
+.rule{height:1px;background:linear-gradient(90deg,var(--line),transparent);margin:38px 0 34px;border:0}
+
+/* ===== Section label ===== */
+.sec-label{
+  display:flex;align-items:baseline;gap:12px;margin-bottom:16px;
+}
+.sec-label h2{font-size:17px;font-weight:700}
+.sec-label .hint{font-size:12.5px;color:var(--text-dim);font-family:var(--mono)}
+
+/* ===== Doc cards ===== */
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.card{
+  position:relative;overflow:hidden;
+  background:linear-gradient(180deg,var(--panel) 0%,var(--bg-soft) 100%);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:26px 26px 22px;
+  display:flex;flex-direction:column;
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.card::before{
+  content:"";position:absolute;inset:0 0 auto 0;height:2px;
+  background:linear-gradient(90deg,var(--primary),var(--teal));
+  opacity:.75;
+}
+.card .watermark{
+  position:absolute;top:10px;right:18px;
+  font-family:var(--mono);font-size:52px;font-weight:700;
+  color:rgba(158,176,217,.09);line-height:1;user-select:none;
+}
+.card:hover{
+  transform:translateY(-3px);
+  border-color:rgba(79,124,255,.55);
+  box-shadow:0 14px 34px -14px rgba(79,124,255,.35);
+}
+.card:focus-within{border-color:var(--primary-2)}
+
+.card-top{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.glyph{
+  width:46px;height:46px;flex:none;border-radius:11px;
+  background:rgba(79,124,255,.12);
+  border:1px solid rgba(79,124,255,.34);
+  display:flex;align-items:center;justify-content:center;
+}
+.doc-type{
+  font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  color:var(--primary-2);text-transform:uppercase;display:block;
+}
+.card h3{font-size:19.5px;font-weight:750;margin-top:2px}
+.desc{color:var(--text-dim);font-size:13.8px;margin-bottom:18px;flex:1}
+.desc b{color:var(--text);font-weight:600}
+
+.chips-label{
+  font-size:11.5px;font-family:var(--mono);letter-spacing:.1em;
+  color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;
+}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:20px}
+.chip{
+  font-size:12px;color:var(--text);
+  background:var(--panel-2);border:1px solid var(--line);
+  border-radius:999px;padding:3px 11px;white-space:nowrap;
+}
+.chip.alt{border-color:rgba(45,212,191,.35);color:var(--teal)}
+
+.open{
+  align-self:flex-start;
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:14px;font-weight:650;text-decoration:none;
+  color:var(--text);
+  background:rgba(79,124,255,.14);
+  border:1px solid rgba(79,124,255,.42);
+  border-radius:10px;padding:9px 18px;
+  transition:background .16s ease,border-color .16s ease;
+}
+.open .arrow{display:inline-block;transition:transform .16s ease;font-family:var(--mono)}
+.open:hover{background:rgba(79,124,255,.28);border-color:var(--primary-2)}
+.open:hover .arrow{transform:translateX(4px)}
+.open:focus-visible{outline:2px solid var(--primary-2);outline-offset:2px}
+
+/* ===== Prototype card ===== */
+.card-proto{
+  margin-top:20px;
+  flex-direction:row;align-items:center;gap:20px;
+  padding:20px 24px;
+  background:linear-gradient(180deg,var(--panel-2) 0%,var(--panel) 100%);
+}
+.card-proto::before{background:linear-gradient(90deg,var(--teal),var(--amber))}
+.card-proto .glyph{background:rgba(45,212,191,.10);border-color:rgba(45,212,191,.34)}
+.card-proto .doc-type{color:var(--teal)}
+.card-proto .proto-main{flex:1;min-width:0}
+.card-proto h3{font-size:17px}
+.card-proto .desc{margin:4px 0 0;font-size:13.2px}
+.card-proto:hover{border-color:rgba(45,212,191,.55);box-shadow:0 14px 34px -14px rgba(45,212,191,.30)}
+.card-proto .open{
+  background:rgba(45,212,191,.12);border-color:rgba(45,212,191,.42);flex:none;
+}
+.card-proto .open:hover{background:rgba(45,212,191,.24);border-color:var(--teal)}
+.badge-live{
+  font-family:var(--mono);font-size:11px;color:var(--amber);
+  border:1px solid rgba(245,181,68,.45);background:rgba(245,181,68,.10);
+  border-radius:999px;padding:2px 10px;white-space:nowrap;
+}
+
+/* ===== Footer ===== */
+footer{
+  margin-top:44px;padding-top:20px;border-top:1px solid var(--line);
+  display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;
+  font-size:12.5px;color:var(--text-dim);
+}
+footer .mono{font-family:var(--mono);font-size:11.5px}
+footer .ok{color:var(--ok)}
+
+/* ===== Pure-CSS glyphs ===== */
+.g-flow{display:flex;align-items:center;gap:4px}
+.g-flow i{width:8px;height:8px;border-radius:50%;background:var(--primary-2)}
+.g-flow i:nth-child(4){background:var(--teal)}
+.g-flow b{width:12px;height:2px;background:var(--line);display:block}
+.g-stack{display:flex;flex-direction:column;gap:4px;width:24px}
+.g-stack i{height:6px;border-radius:3px;background:var(--primary-2)}
+.g-stack i:nth-child(2){width:80%;background:var(--teal)}
+.g-stack i:nth-child(3){width:60%;background:var(--amber)}
+.g-term{width:24px;height:18px;border:1.5px solid var(--teal);border-radius:4px;position:relative;background:rgba(45,212,191,.07)}
+.g-term::before{content:"";position:absolute;top:3px;left:3px;width:4px;height:4px;border-radius:50%;background:var(--danger)}
+.g-term::after{content:"";position:absolute;top:3px;left:9px;width:4px;height:4px;border-radius:50%;background:var(--amber)}
+
+/* ===== Responsive ===== */
+@media (max-width:860px){
+  .grid{grid-template-columns:1fr}
+  .card-proto{flex-direction:column;align-items:flex-start;gap:14px}
+  .card-proto .proto-head{display:flex;align-items:center;gap:14px;width:100%}
+  .open-proto-wrap{width:100%;display:flex;justify-content:flex-start}
+}
+@media (max-width:480px){
+  .wrap{padding:40px 18px 56px}
+  .card{padding:22px 18px 18px}
+  .card .watermark{font-size:40px;right:12px}
+  h1{font-size:27px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <header>
+    <div class="eyebrow"><span class="pulse"></span>DATA QUALITY AGENT · SDD DOCS</div>
+    <h1>数据质量 Agent <span class="sep">·</span> <span class="grad">设计文档中心</span></h1>
+    <p class="sub"><strong>跨 SDD 驱动的设计文档中心</strong>。三份交付物（业务旅程、架构设计、交互原型）共享同一事实来源：命名、实体、流程、枚举值严格一致，章节均按「需求 → 设计 → 验收口径」三段式组织。</p>
+    <div class="meta">
+      <span class="tag tag-ver">v1.0</span>
+      <span class="tag">2026-10-11</span>
+      <span class="tag tag-teal">Single Source of Truth</span>
+      <span class="tag">纯 HTML/CSS · 离线可开</span>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <div class="sec-label">
+    <h2>设计文档</h2>
+    <span class="hint">spec-driven · 2 docs</span>
+  </div>
+
+  <section class="grid" aria-label="设计文档列表">
+
+    <article class="card">
+      <span class="watermark">01</span>
+      <div class="card-top">
+        <div class="glyph" aria-hidden="true">
+          <div class="g-flow"><i></i><b></b><i></i><b></b><i></i></div>
+        </div>
+        <div>
+          <span class="doc-type">Doc 01 · 业务视图</span>
+          <h3>业务旅程设计文档</h3>
+        </div>
+      </div>
+      <p class="desc">从<b>五条设计原则</b>出发，覆盖配置态资产编排链（Tool → Skill → Task → Agent）与运行态主链路（路由 → 知识加载 → 规划 → 执行 → Gate → Finish），落位角色权限与组件映射，含 <b>S1–S5 业务活动样例</b>与逐节点<b>情绪曲线</b>标注。</p>
+      <div class="chips-label">章节</div>
+      <div class="chips">
+        <span class="chip">设计原则</span>
+        <span class="chip">旅程总览</span>
+        <span class="chip">详细设计</span>
+        <span class="chip">角色权限</span>
+        <span class="chip">组件映射</span>
+        <span class="chip">业务活动样例</span>
+        <span class="chip alt">情绪曲线</span>
+      </div>
+      <a class="open" href="business-journey.html">打开 <span class="arrow">→</span></a>
+    </article>
+
+    <article class="card">
+      <span class="watermark">02</span>
+      <div class="card-top">
+        <div class="glyph" aria-hidden="true">
+          <div class="g-stack"><i></i><i></i><i></i></div>
+        </div>
+        <div>
+          <span class="doc-type">Doc 02 · 技术视图</span>
+          <h3>架构设计文档</h3>
+        </div>
+      </div>
+      <p class="desc">L3–L1 三层架构落地设计：<b>三层路由</b>（状态检测 → 意图分类 → 动作执行）、四类上下文、Planner 按白名单的<b>知识加载</b>、热/温/冷<b>消息压缩</b>、<b>LangGraph DAG 骨架</b>与 ReAct 执行引擎、资产层级管理、<b>Skill 渐进披露与 Tool 注册</b>、ORM 数据模型及技术栈选型。</p>
+      <div class="chips-label">章节</div>
+      <div class="chips">
+        <span class="chip">三层架构</span>
+        <span class="chip">三层路由</span>
+        <span class="chip">上下文架构</span>
+        <span class="chip">知识加载</span>
+        <span class="chip">消息压缩</span>
+        <span class="chip alt">LangGraph DAG</span>
+        <span class="chip">执行引擎</span>
+        <span class="chip">资产管理</span>
+        <span class="chip">Skill 披露 · Tool 注册</span>
+        <span class="chip">数据模型 ORM</span>
+        <span class="chip alt">技术栈</span>
+      </div>
+      <a class="open" href="architecture.html">打开 <span class="arrow">→</span></a>
+    </article>
+
+  </section>
+
+  <section aria-label="交互原型" style="margin-top:20px">
+    <article class="card card-proto">
+      <div class="proto-head" style="display:flex;align-items:center;gap:16px;flex:none">
+        <div class="glyph" aria-hidden="true"><div class="g-term"></div></div>
+        <div class="proto-main">
+          <span class="doc-type">Prototype · 交互原型</span>
+          <h3>交互原型入口</h3>
+          <p class="desc">纯 HTML/CSS/JS 单页原型：配置态 4 步向导、运行态 DAG 动画流转、ReAct 步骤流、Gate/HITL 卡与 Trace 面板，核心 Demo 剧本一键跑通。</p>
+        </div>
+      </div>
+      <span class="badge-live">Mock 外部系统</span>
+      <div class="open-proto-wrap" style="flex:none">
+        <a class="open" href="../index.html">打开 <span class="arrow">→</span></a>
+      </div>
+    </article>
+  </section>
+
+  <footer>
+    <span>数据质量 Agent · 设计文档中心</span>
+    <span class="mono">v1.0 · 2026-10-11</span>
+    <span>深色科技 SaaS 风格 · 系统字体栈 · 无外部依赖</span>
+    <span class="ok">file:// 离线打开 ✓</span>
+  </footer>
+
+</main>
+</body>
+</html>

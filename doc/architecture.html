@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据质量 Agent · 架构设计文档</title>
+<style>
+/* ============ 设计系统变量（规范 §10 逐字） ============ */
+:root{
+  --bg:#0b1020;            /* 深色科技底 */
+  --bg-soft:#121a33;
+  --panel:#161f3d;
+  --panel-2:#1d294e;
+  --line:#2a3766;
+  --text:#e8edff;
+  --text-dim:#9fb0d9;
+  --primary:#4f7cff;       /* 主蓝 */
+  --primary-2:#6ea8ff;
+  --teal:#2dd4bf;          /* 强调青 */
+  --amber:#f5b544;         /* Gate/警告 */
+  --danger:#ff5c7a;
+  --ok:#37d67a;
+  --radius:14px;
+  --mono:'JetBrains Mono','Cascadia Code',Consolas,monospace;
+  --sans:'Inter','PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+}
+
+/* ============ 基础重置 ============ */
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--sans); line-height:1.7; font-size:15px;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(79,124,255,.12), transparent 60%),
+    radial-gradient(900px 500px at 5% 100%, rgba(45,212,191,.08), transparent 55%);
+  background-attachment:fixed;
+}
+h1,h2,h3,h4{ font-weight:700; line-height:1.25; margin:0; }
+p{ margin:.35em 0; }
+code,pre,kbd{ font-family:var(--mono); }
+a{ color:var(--primary-2); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+
+/* ============ 布局 ============ */
+.layout{ display:flex; min-height:100vh; }
+.sidebar{
+  position:fixed; top:0; left:0; width:280px; height:100vh;
+  overflow-y:auto; background:linear-gradient(180deg,var(--bg-soft),var(--bg));
+  border-right:1px solid var(--line); padding:20px 16px 60px; z-index:40;
+}
+.content{
+  margin-left:280px; flex:1; min-width:0;
+  padding:26px clamp(16px,3vw,44px) 120px;
+}
+
+/* ============ 头部 ============ */
+.doc-header{
+  background:linear-gradient(135deg,rgba(79,124,255,.14),rgba(45,212,191,.06));
+  border:1px solid var(--line); border-radius:var(--radius);
+  padding:26px 28px; margin-bottom:24px; position:relative; overflow:hidden;
+}
+.doc-header::after{
+  content:""; position:absolute; inset:auto -40px -70px auto; width:240px; height:240px;
+  background:radial-gradient(circle,rgba(79,124,255,.22),transparent 70%);
+}
+.doc-header h1{ font-size:clamp(22px,3vw,30px); letter-spacing:.5px; }
+.doc-header .subtitle{ color:var(--text-dim); margin-top:6px; font-size:15px; }
+.doc-meta{ display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; align-items:center; }
+.badge{
+  display:inline-flex; align-items:center; gap:6px; font-size:12.5px;
+  padding:5px 12px; border-radius:999px; border:1px solid var(--line);
+  background:var(--panel); color:var(--text-dim); font-family:var(--mono);
+}
+.badge.v{ color:var(--teal); border-color:rgba(45,212,191,.4); }
+.badge.d{ color:var(--primary-2); border-color:rgba(79,124,255,.4); }
+.badge.sdd{ color:var(--amber); border-color:rgba(245,181,68,.4); }
+.chip-dot{ width:7px; height:7px; border-radius:50%; background:currentColor; }
+
+/* ============ 侧栏 TOC ============ */
+.brand{ font-weight:800; font-size:16px; letter-spacing:.3px; margin-bottom:2px; color:var(--text); }
+.brand .en{ display:block; font-size:11px; color:var(--text-dim); font-weight:500; letter-spacing:1px; }
+.toc-title{ font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-dim); margin:22px 8px 8px; }
+.toc a{
+  display:flex; align-items:center; gap:10px;
+  padding:8px 12px; border-radius:10px; color:var(--text-dim);
+  font-size:13.5px; border-left:2px solid transparent; transition:.16s;
+}
+.toc a .n{
+  font-family:var(--mono); font-size:11px; width:20px; height:20px; flex:none;
+  display:grid; place-items:center; border-radius:6px; background:var(--panel); color:var(--text-dim);
+  border:1px solid var(--line);
+}
+.toc a:hover{ background:var(--panel); color:var(--text); text-decoration:none; }
+.toc a.active{
+  background:linear-gradient(90deg,rgba(79,124,255,.18),transparent);
+  color:#fff; border-left-color:var(--primary);
+}
+.toc a.active .n{ background:var(--primary); color:#fff; border-color:var(--primary); }
+
+/* ============ 章节卡片 ============ */
+.card{
+  background:linear-gradient(180deg,var(--panel),var(--bg-soft));
+  border:1px solid var(--line); border-radius:var(--radius);
+  padding:24px clamp(16px,2.4vw,28px); margin-bottom:26px;
+  scroll-margin-top:20px; position:relative;
+}
+.card > .sec-head{ display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+.sec-idx{
+  font-family:var(--mono); font-size:13px; font-weight:700; color:#fff; flex:none;
+  width:34px; height:34px; border-radius:10px; display:grid; place-items:center;
+  background:linear-gradient(135deg,var(--primary),var(--teal));
+  box-shadow:0 6px 18px -6px rgba(79,124,255,.6);
+}
+.card h2{ font-size:clamp(18px,2.2vw,22px); }
+.card .lead{ color:var(--text-dim); font-size:14px; margin:2px 0 18px 48px; }
+.card h3{ font-size:15.5px; margin:20px 0 8px; color:var(--primary-2); display:flex; align-items:center; gap:8px; }
+.card h3::before{ content:""; width:8px; height:8px; border-radius:2px; background:var(--teal); transform:rotate(45deg); }
+
+/* ============ SDD 三段式 ============ */
+.triad{
+  display:grid; grid-template-columns:1fr 26px 1fr 26px 1fr; gap:0; align-items:stretch;
+  margin:0 0 22px;
+}
+.tri{
+  border:1px solid var(--line); border-radius:12px; padding:13px 15px; background:var(--panel-2);
+  display:flex; flex-direction:column; gap:7px; font-size:13.5px;
+}
+.tri .t{
+  font-size:11px; font-weight:800; letter-spacing:1px; text-transform:uppercase;
+  padding:3px 9px; border-radius:6px; align-self:flex-start; font-family:var(--mono);
+}
+.tri.req{ border-top:2px solid var(--primary); }
+.tri.req .t{ color:var(--primary-2); background:rgba(79,124,255,.14); }
+.tri.design{ border-top:2px solid var(--teal); }
+.tri.design .t{ color:var(--teal); background:rgba(45,212,191,.14); }
+.tri.accept{ border-top:2px solid var(--amber); }
+.tri.accept .t{ color:var(--amber); background:rgba(245,181,68,.14); }
+.tri ul{ margin:0; padding-left:16px; color:var(--text-dim); }
+.tri li{ margin:2px 0; }
+.tri .arrow{ color:var(--text-dim); font-size:18px; display:grid; place-items:center; }
+.tri-arrow{ display:grid; place-items:center; color:var(--primary); font-size:20px; font-weight:700; }
+
+/* ============ 表格 ============ */
+.table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:12px; margin:10px 0 18px; }
+table{ width:100%; border-collapse:collapse; font-size:13.5px; min-width:520px; }
+thead th{
+  background:var(--panel-2); color:var(--primary-2); text-align:left;
+  padding:11px 14px; font-weight:700; font-size:12.5px; letter-spacing:.4px;
+  border-bottom:1px solid var(--line); white-space:nowrap;
+}
+tbody td{ padding:10px 14px; border-bottom:1px solid rgba(42,55,102,.6); color:var(--text-dim); vertical-align:top; }
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr:hover td{ background:rgba(79,124,255,.06); }
+td .k, .mono{ font-family:var(--mono); color:var(--text); font-size:12.5px; }
+
+/* ============ 代码块 ============ */
+.code{
+  background:#0a0e1e; border:1px solid var(--line); border-radius:12px;
+  padding:16px 18px; overflow-x:auto; font-size:12.8px; line-height:1.6; margin:10px 0 18px;
+  box-shadow:inset 0 0 0 1px rgba(79,124,255,.05);
+}
+.code .lang{ display:block; color:var(--text-dim); font-size:11px; letter-spacing:1px; margin-bottom:8px; font-family:var(--mono); opacity:.7; }
+.tok-kw{ color:#c792ff; }   /* keyword */
+.tok-fn{ color:#6ea8ff; }   /* function */
+.tok-str{ color:#8be9c0; }  /* string */
+.tok-num{ color:#f5b544; }  /* number */
+.tok-com{ color:#5c6f9c; font-style:italic; } /* comment */
+.tok-type{ color:#2dd4bf; } /* type/class */
+.tok-op{ color:#ff9ec4; }   /* operator/decorator */
+
+/* ============ 标签枚举 ============ */
+.enum-row{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 16px; }
+.enum{
+  font-family:var(--mono); font-size:12.5px; padding:5px 11px; border-radius:8px;
+  background:rgba(79,124,255,.1); border:1px solid rgba(79,124,255,.35); color:var(--primary-2);
+}
+.enum.teal{ background:rgba(45,212,191,.1); border-color:rgba(45,212,191,.35); color:var(--teal); }
+.enum.amber{ background:rgba(245,181,68,.1); border-color:rgba(245,181,68,.35); color:var(--amber); }
+.enum.danger{ background:rgba(255,92,122,.1); border-color:rgba(255,92,122,.35); color:var(--danger); }
+.enum.ok{ background:rgba(55,214,122,.1); border-color:rgba(55,214,122,.35); color:var(--ok); }
+.enum.dim{ background:var(--panel-2); border-color:var(--line); color:var(--text-dim); }
+
+/* ============ 图示通用 ============ */
+.diagram{
+  background:radial-gradient(circle at 50% 0%,rgba(79,124,255,.06),transparent 70%),#0a0e1e;
+  border:1px solid var(--line); border-radius:12px; padding:22px; margin:10px 0 18px; overflow-x:auto;
+}
+.dg-caption{ text-align:center; color:var(--text-dim); font-size:12px; font-family:var(--mono); margin-top:6px; }
+
+/* ---- 三层架构图 ---- */
+.layers{ display:flex; flex-direction:column; gap:14px; min-width:560px; }
+.layer{
+  border:1px solid var(--line); border-radius:12px; padding:14px 16px; position:relative;
+}
+.layer.l3{ background:linear-gradient(180deg,rgba(45,212,191,.10),transparent); border-color:rgba(45,212,191,.4); }
+.layer.l2{ background:linear-gradient(180deg,rgba(79,124,255,.10),transparent); border-color:rgba(79,124,255,.4); }
+.layer.l1{ background:linear-gradient(180deg,rgba(245,181,68,.08),transparent); border-color:rgba(245,181,68,.4); }
+.layer .lh{ display:flex; align-items:baseline; gap:10px; margin-bottom:12px; }
+.layer .tag{
+  font-family:var(--mono); font-weight:700; font-size:12px; padding:3px 9px; border-radius:7px; color:#061018;
+}
+.layer.l3 .tag{ background:var(--teal); } .layer.l2 .tag{ background:var(--primary-2); } .layer.l1 .tag{ background:var(--amber); }
+.layer .ln{ font-weight:700; font-size:15px; }
+.layer .le{ color:var(--text-dim); font-size:12px; font-family:var(--mono); margin-left:auto; }
+.modules{ display:flex; flex-wrap:wrap; gap:8px; }
+.mod{
+  background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:7px 11px;
+  font-size:12.5px; color:var(--text); display:flex; flex-direction:column; gap:2px; min-width:104px;
+}
+.mod b{ font-size:12.5px; font-weight:700; } .mod span{ font-size:10.5px; color:var(--text-dim); font-family:var(--mono); }
+.flow-arrow{ display:grid; place-items:center; color:var(--primary-2); font-family:var(--mono); font-size:12px; gap:2px; }
+.flow-arrow svg{ display:block; }
+
+/* ---- 竖向流程 ---- */
+.vflow{ display:flex; flex-direction:column; align-items:center; gap:0; min-width:260px; }
+.vnode{
+  width:100%; max-width:460px; background:var(--panel); border:1px solid var(--line); border-radius:11px;
+  padding:12px 15px; display:flex; align-items:center; gap:12px;
+}
+.vnode .vn-idx{ font-family:var(--mono); font-size:12px; color:var(--primary-2); flex:none; width:26px; height:26px; border-radius:8px; display:grid; place-items:center; background:var(--panel-2); border:1px solid var(--line); }
+.vnode.hot{ border-color:rgba(45,212,191,.5); } .vnode.gate{ border-color:rgba(245,181,68,.5); }
+.vnode.end{ border-color:rgba(55,214,122,.5); }
+.vnode .vt b{ display:block; font-size:13.5px; } .vnode .vt span{ font-size:11.5px; color:var(--text-dim); font-family:var(--mono); }
+.vconn{ height:22px; display:grid; place-items:center; color:var(--primary); }
+
+/* ---- 上下文作用域嵌套 ---- */
+.ctx-wrap{ display:flex; flex-direction:column; gap:12px; min-width:520px; }
+.ctx-scope{
+  border:1px dashed var(--line); border-radius:12px; padding:12px 16px 14px; position:relative;
+}
+.ctx-scope .scope-lbl{ position:absolute; top:-9px; left:16px; background:var(--bg); padding:0 8px; font-size:11px; font-family:var(--mono); letter-spacing:1px; }
+.ctx-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-top:6px; }
+.ctx-card{ background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--primary); border-radius:9px; padding:10px 13px; }
+.ctx-card.m{ border-left-color:var(--teal); } .ctx-card.e{ border-left-color:var(--primary); }
+.ctx-card.k{ border-left-color:var(--amber); } .ctx-card.c{ border-left-color:#c792ff; }
+.ctx-card b{ font-size:13px; display:flex; gap:6px; align-items:center; } .ctx-card .en{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); font-weight:400; }
+.ctx-card p{ font-size:12px; color:var(--text-dim); margin:5px 0 0; }
+
+/* ---- 时序图 ---- */
+.seq{ position:relative; min-width:620px; }
+.seq-svg{ width:100%; height:auto; display:block; }
+
+/* ---- ER 图 ---- */
+.er-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; min-width:560px; }
+.er-ent{ background:var(--panel); border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+.er-ent .eh{ padding:9px 12px; font-weight:700; font-size:13px; background:var(--panel-2); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+.er-ent .eh .tbl{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); font-weight:400; }
+.er-ent ul{ list-style:none; margin:0; padding:8px 12px; }
+.er-ent li{ font-size:11.5px; font-family:var(--mono); color:var(--text-dim); padding:2px 0; display:flex; gap:7px; align-items:center; }
+.er-ent li .pk{ color:var(--amber); font-weight:700; } .er-ent li .fk{ color:var(--teal); font-weight:700; }
+.er-core .eh{ background:linear-gradient(90deg,rgba(79,124,255,.25),rgba(45,212,191,.12)); }
+
+/* ---- 关系条 ---- */
+.rel-list{ display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 16px; }
+.rel{
+  font-family:var(--mono); font-size:12px; padding:6px 11px; border-radius:8px;
+  background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+}
+.rel b{ color:var(--primary-2); } .rel .card-num{ color:var(--amber); }
+
+/* ---- 循环 ReAct 图 ---- */
+.loop-wrap{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; min-width:420px; }
+.loop-node{ background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:14px; text-align:center; }
+.loop-node .ln-t{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+.loop-node b{ display:block; font-size:15px; margin-top:4px; }
+.loop-node.think{ border-color:rgba(79,124,255,.5); } .loop-node.act{ border-color:rgba(45,212,191,.5); } .loop-node.obs{ border-color:rgba(245,181,68,.5); }
+
+/* ---- 分区 Hot/Warm/Cold ---- */
+.zones{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; min-width:480px; }
+.zone{ border-radius:11px; padding:14px; border:1px solid var(--line); }
+.zone.hot{ background:linear-gradient(180deg,rgba(55,214,122,.14),transparent); border-color:rgba(55,214,122,.4); }
+.zone.warm{ background:linear-gradient(180deg,rgba(245,181,68,.12),transparent); border-color:rgba(245,181,68,.4); }
+.zone.cold{ background:linear-gradient(180deg,rgba(79,124,255,.12),transparent); border-color:rgba(79,124,255,.4); }
+.zone .zh{ display:flex; align-items:center; justify-content:space-between; font-weight:700; }
+.zone .zh .zchip{ font-family:var(--mono); font-size:10.5px; padding:2px 8px; border-radius:6px; }
+.zone.hot .zchip{ background:rgba(55,214,122,.2); color:var(--ok); }
+.zone.warm .zchip{ background:rgba(245,181,68,.2); color:var(--amber); }
+.zone.cold .zchip{ background:rgba(79,124,255,.2); color:var(--primary-2); }
+.zone p{ font-size:12px; color:var(--text-dim); margin:8px 0 0; }
+
+/* ---- 生命周期阶梯 ---- */
+.lifecycle{ display:flex; align-items:stretch; gap:0; flex-wrap:wrap; min-width:460px; }
+.lc-stage{ flex:1; min-width:150px; background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:13px 15px; position:relative; }
+.lc-stage .lc-idx{ font-family:var(--mono); font-size:11px; color:var(--teal); }
+.lc-stage b{ display:block; margin:3px 0; } .lc-stage p{ font-size:11.5px; color:var(--text-dim); margin:0; }
+.lc-arrow{ display:grid; place-items:center; color:var(--primary); padding:0 6px; font-size:20px; }
+
+/* ---- 披露阶梯 ---- */
+.disc{ display:flex; flex-direction:column; gap:10px; min-width:420px; }
+.disc-lvl{ display:flex; gap:14px; align-items:center; border:1px solid var(--line); border-radius:11px; padding:12px 16px; background:var(--panel); }
+.disc-lvl .dl{ font-family:var(--mono); font-weight:800; font-size:14px; width:54px; height:54px; border-radius:12px; display:grid; place-items:center; flex:none; }
+.disc-lvl.l0 .dl{ background:rgba(55,214,122,.16); color:var(--ok); border:1px solid rgba(55,214,122,.4); }
+.disc-lvl.l1 .dl{ background:rgba(245,181,68,.16); color:var(--amber); border:1px solid rgba(245,181,68,.4); }
+.disc-lvl.l2 .dl{ background:rgba(79,124,255,.16); color:var(--primary-2); border:1px solid rgba(79,124,255,.4); }
+.disc-lvl b{ display:block; } .disc-lvl span{ font-size:12.5px; color:var(--text-dim); }
+
+/* ============ 辅助 ============ */
+.note{
+  border-left:3px solid var(--amber); background:rgba(245,181,68,.08);
+  padding:10px 14px; border-radius:0 9px 9px 0; font-size:13px; color:var(--text-dim); margin:12px 0;
+}
+.note.p{ border-left-color:var(--primary); background:rgba(79,124,255,.08); }
+.note.t{ border-left-color:var(--teal); background:rgba(45,212,191,.08); }
+.principle-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin:8px 0 16px; }
+.pr{ border:1px solid var(--line); border-radius:11px; padding:14px 16px; background:var(--panel); position:relative; }
+.pr .pid{ font-family:var(--mono); font-weight:800; font-size:12px; color:#061018; background:linear-gradient(135deg,var(--teal),var(--primary-2)); padding:2px 9px; border-radius:6px; }
+.pr b{ display:block; margin:9px 0 4px; font-size:14px; }
+.pr p{ font-size:12.5px; color:var(--text-dim); margin:0; }
+.pr .cons{ margin-top:9px; font-size:11.5px; color:var(--primary-2); font-family:var(--mono); border-top:1px dashed var(--line); padding-top:8px; }
+.stack-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+.xref{ font-size:12.5px; color:var(--text-dim); margin:14px 0 0; padding:10px 14px; background:var(--bg-soft); border:1px solid var(--line); border-radius:9px; }
+.xref code{ font-family:var(--mono); color:var(--teal); }
+
+/* ============ 移动端 ============ */
+@media (max-width:900px){
+  .sidebar{ position:static; width:auto; height:auto; border-right:none; border-bottom:1px solid var(--line); padding:16px; }
+  .content{ margin-left:0; }
+  .layout{ flex-direction:column; }
+  .toc{ display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; }
+  .toc a{ white-space:nowrap; border-left:none; border-radius:8px; }
+  .toc-title{ display:none; }
+  .triad{ grid-template-columns:1fr; }
+  .tri-arrow{ transform:rotate(90deg); height:26px; }
+  .loop-wrap,.zones{ grid-template-columns:1fr; }
+  .brand{ margin-bottom:10px; }
+}
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-track{ background:var(--bg); }
+::-webkit-scrollbar-thumb{ background:var(--line); border-radius:6px; }
+::-webkit-scrollbar-thumb:hover{ background:var(--primary); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ================= 侧栏 TOC ================= -->
+  <aside class="sidebar">
+    <div class="brand">数据质量 Agent<span class="en">DATA QUALITY AGENT · ARCH</span></div>
+    <div class="toc-title">目录 · Contents</div>
+    <nav class="toc" id="toc">
+      <a href="#s1"><span class="n">01</span>设计原则</a>
+      <a href="#s2"><span class="n">02</span>三层架构总览</a>
+      <a href="#s3"><span class="n">03</span>路由方案</a>
+      <a href="#s4"><span class="n">04</span>上下文架构</a>
+      <a href="#s5"><span class="n">05</span>知识加载机制</a>
+      <a href="#s6"><span class="n">06</span>消息压缩机制</a>
+      <a href="#s7"><span class="n">07</span>LangGraph DAG 骨架</a>
+      <a href="#s8"><span class="n">08</span>执行引擎</a>
+      <a href="#s9"><span class="n">09</span>业务资产管理</a>
+      <a href="#s10"><span class="n">10</span>Skill 披露 &amp; Tool 注册</a>
+      <a href="#s11"><span class="n">11</span>数据模型和 ORM</a>
+      <a href="#s12"><span class="n">12</span>技术栈</a>
+    </nav>
+    <div class="toc-title">关联文档</div>
+    <div style="padding:0 8px; font-size:12px; color:var(--text-dim); line-height:1.9;">
+      <div>↗ <a href="./business-journey.html">业务旅程设计</a></div>
+      <div>↗ <a href="../index.html">交互原型 index</a></div>
+      <div style="margin-top:8px; font-family:var(--mono); opacity:.7;">SSOT · dq-agent-spec</div>
+    </div>
+  </aside>
+
+  <!-- ================= 内容区 ================= -->
+  <main class="content">
+
+    <header class="doc-header" id="top">
+      <h1>数据质量 Agent · 架构设计文档</h1>
+      <p class="subtitle">三层解耦架构 · LangGraph DAG 骨架 · Spec-Driven Design · 单文件离线可阅</p>
+      <div class="doc-meta">
+        <span class="badge v"><span class="chip-dot"></span>Version v1.0</span>
+        <span class="badge d"><span class="chip-dot"></span>2026-10-11</span>
+        <span class="badge sdd"><span class="chip-dot"></span>SDD 需求→设计→验收</span>
+        <span class="badge">范围：执行引擎 / 编排 / 持久化</span>
+        <span class="badge">状态：设计基线</span>
+      </div>
+    </header>
+
+    <!-- ============ 01 设计原则 ============ -->
+    <section class="card" id="s1">
+      <div class="sec-head"><div class="sec-idx">01</div><h2>设计原则</h2></div>
+      <p class="lead">五条原则逐字锚定规范 §1.2，并转译为可判定的架构约束，作为全篇设计的裁决依据。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>IT 实现与业务解耦</li><li>业务人员可自编排</li><li>产出物可审计复用</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>P1~P5 作为硬约束</li><li>每条映射到具体机制</li><li>违反即评审阻断</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>逐条可追溯到模块</li><li>无"Agent 直写业务库"</li><li>无"全局塞知识"</li></ul></div>
+      </div>
+      <div class="principle-grid">
+        <div class="pr"><span class="pid">P1</span><b>业务活动用户自编排</b><p>Agent/Task/Skill/Tool 的编排是用户（业务人员）的活动，不是开发者写死的代码。</p><div class="cons">约束：编排 = 持久化配置数据，运行期读取，非源码</div></div>
+        <div class="pr"><span class="pid">P2</span><b>业务数据持久化由 Tool 调用</b><p>Agent 不直接把业务数据当自己的记忆/状态；落库一律通过 Tool 原子调用。</p><div class="cons">约束：State 不含业务产出物，落库仅经 <span class="mono">probe.upsert</span> 等</div></div>
+        <div class="pr"><span class="pid">P3</span><b>规则/探针是业务产出物</b><p>规则与探针是一等业务资产，可版本化、可审计、可复用。</p><div class="cons">约束：<span class="mono">Standard/Rule/Probe</span> 独立建模 + version</div></div>
+        <div class="pr"><span class="pid">P4</span><b>执行器用现成工具</b><p>执行引擎不重复造轮子，复用 LangGraph/LangChain 生态与既有调度器。</p><div class="cons">约束：<span class="mono">StateGraph</span> + <span class="mono">trim_messages</span> + APScheduler/Celery</div></div>
+        <div class="pr"><span class="pid">P5</span><b>知识加载是 Planner 的职责</b><p>知识不是全局塞进上下文，而是在规划阶段由 Planner 按 Task 白名单按需加载。</p><div class="cons">约束：加载发生在 <span class="mono">knowledge_load</span> 节点，非全局注入</div></div>
+      </div>
+    </section>
+
+    <!-- ============ 02 三层架构总览 ============ -->
+    <section class="card" id="s2">
+      <div class="sec-head"><div class="sec-idx">02</div><h2>三层架构总览</h2></div>
+      <p class="lead">L3 编排 → L2 执行 → L1 持久化，逐层收敛、职责单一。上图数据自上而下流动、结果自下而上回写。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>业务与 IT 解耦</li><li>引擎通用、可复用</li><li>原子能力可插拔</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>三层边界清晰</li><li>层间仅经 Tool/DAG 契约</li><li>持久化下沉为原子 Tool</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>L2 不含业务语义</li><li>L1 仅暴露原子 Tool</li><li>L3 变更不改引擎代码</li></ul></div>
+      </div>
+
+      <div class="diagram">
+        <div class="layers">
+          <div class="layer l3">
+            <div class="lh"><span class="tag">L3</span><span class="ln">用户自编排层</span><span class="le">User Orchestration Layer</span></div>
+            <div class="modules">
+              <div class="mod"><b>Agent 编排</b><span>business_activity</span></div>
+              <div class="mod"><b>Task 配置</b><span>goal + gate_policy</span></div>
+              <div class="mod"><b>Skill 编写</b><span>prompt_template</span></div>
+              <div class="mod"><b>Tool 注册</b><span>schema_json</span></div>
+              <div class="mod"><b>知识白名单</b><span>Agent/Task 维度</span></div>
+            </div>
+          </div>
+          <div class="flow-arrow">
+            <svg width="20" height="30"><defs><marker id="ah" markerWidth="9" markerHeight="9" refX="4" refY="7" orient="auto"><path d="M1,1 L4,7 L7,1" fill="none" stroke="#6ea8ff" stroke-width="1.5"/></marker></defs><line x1="10" y1="2" x2="10" y2="24" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg>
+            编排定义 ↓ · 运行事件 ↑
+          </div>
+          <div class="layer l2">
+            <div class="lh"><span class="tag">L2</span><span class="ln">通用执行引擎层</span><span class="le">Generic Execution Engine Layer</span></div>
+            <div class="modules">
+              <div class="mod"><b>三层 Router</b><span>state/intent/action</span></div>
+              <div class="mod"><b>Planner</b><span>knowledge_load · plan</span></div>
+              <div class="mod"><b>Executor</b><span>ReAct loop</span></div>
+              <div class="mod"><b>Gate</b><span>LLM / HITL</span></div>
+              <div class="mod"><b>DAG 骨架</b><span>StateGraph</span></div>
+              <div class="mod"><b>Checkpointer</b><span>Memory/Postgres</span></div>
+            </div>
+          </div>
+          <div class="flow-arrow">
+            <svg width="40" height="30"><defs><marker id="ah2" markerWidth="9" markerHeight="9" refX="4" refY="7" orient="auto"><path d="M1,1 L4,7 L7,1" fill="none" stroke="#2dd4bf" stroke-width="1.5"/></marker></defs><line x1="12" y1="2" x2="12" y2="24" stroke="#2dd4bf" stroke-width="1.5" marker-end="url(#ah2)"/><line x1="28" y1="28" x2="28" y2="6" stroke="#f5b544" stroke-width="1.5" marker-end="url(#ah)"/></svg>
+            Tool 调用 ↓ · 原子结果 ↑
+          </div>
+          <div class="layer l1">
+            <div class="lh"><span class="tag">L1</span><span class="ln">持久化层</span><span class="le">Persistence Layer</span></div>
+            <div class="modules">
+              <div class="mod"><b>Tool 原子能力</b><span>sql.execute · probe.upsert</span></div>
+              <div class="mod"><b>本体/血缘服务</b><span>ontology.lookup · lineage.query</span></div>
+              <div class="mod"><b>关系数据库</b><span>PostgreSQL 16</span></div>
+              <div class="mod"><b>缓存/调度</b><span>Redis 7 · Scheduler</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="dg-caption">▲ 三层边界与双向数据流：编排数据下行、执行结果/Trace 上行；跨层只经 Tool 契约（符合 P2/P4）</div>
+      </div>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>层</th><th>名称</th><th>英文</th><th>职责</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">L3</span></td><td>用户自编排层</td><td>User Orchestration Layer</td><td>用户自定义 Agent→Task→Skill→Tool，绑定知识</td></tr>
+          <tr><td><span class="mono">L2</span></td><td>通用执行引擎层</td><td>Generic Execution Engine Layer</td><td>DAG 骨架、ReAct 执行、HITL 中断</td></tr>
+          <tr><td><span class="mono">L1</span></td><td>持久化层</td><td>Persistence Layer</td><td>提供原子能力连接数据层</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ============ 03 路由方案 ============ -->
+    <section class="card" id="s3">
+      <div class="sec-head"><div class="sec-idx">03</div><h2>路由方案（三层 Router）</h2></div>
+      <p class="lead">对应运行态主干入口三个节点：<span class="mono">router_stage1_state → router_stage2_intent → router_stage3_action</span>。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>一句自然语言定位动作</li><li>区分配置态/运行态</li><li>支持 HITL 中断恢复</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>三段式路由收敛意图</li><li>意图枚举固定</li><li>Stage3 路由到子图</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>8 个意图全覆盖</li><li>状态标签可判定</li><li>路由到明确 DAG 节点</li></ul></div>
+      </div>
+
+      <h3>Stage2 意图枚举（枚举值固定 · 规范 §4.1）</h3>
+      <div class="enum-row">
+        <span class="enum">CONFIG_TOOL</span>
+        <span class="enum">CONFIG_SKILL</span>
+        <span class="enum">CONFIG_TASK</span>
+        <span class="enum">CONFIG_AGENT</span>
+        <span class="enum teal">RUN_PROBE_REQUEST</span>
+        <span class="enum teal">QUERY_RESULT</span>
+        <span class="enum amber">FOLLOW_UP</span>
+        <span class="enum danger">HITL_RESUME</span>
+      </div>
+
+      <div class="diagram">
+        <div class="vflow">
+          <div class="vnode hot"><span class="vn-idx">S1</span><span class="vt"><b>状态检测 · State Detection</b><span>会话/任务状态 → 状态标签</span></span></div>
+          <div class="vconn"><svg width="16" height="22"><line x1="8" y1="2" x2="8" y2="18" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode"><span class="vn-idx">S2</span><span class="vt"><b>意图分类 · Intent Classification</b><span>用户消息 + 状态 → 意图类别（8 枚举）</span></span></div>
+          <div class="vconn"><svg width="16" height="22"><line x1="8" y1="2" x2="8" y2="18" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode gate"><span class="vn-idx">S3</span><span class="vt"><b>动作执行 · Action Execution</b><span>意图 + 状态 → 路由到子图 / 节点 / 工具链</span></span></div>
+        </div>
+        <div class="dg-caption">▲ 三段式路由：状态先于意图，意图驱动动作；每段输入输出可单测</div>
+      </div>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>阶段</th><th>名称</th><th>输入</th><th>输出</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">Stage1</span></td><td>状态检测 State Detection</td><td>会话/任务当前状态</td><td>状态标签</td><td>判断处于配置态/运行态、是否等待 HITL、是否可继续</td></tr>
+          <tr><td><span class="mono">Stage2</span></td><td>意图分类 Intent Classification</td><td>用户消息 + 状态</td><td>意图类别</td><td>分类到：编排资产 / 发起探测 / 查询结果 / 追问 / 中断恢复 等</td></tr>
+          <tr><td><span class="mono">Stage3</span></td><td>动作执行 Action Execution</td><td>意图 + 状态</td><td>动作路由</td><td>路由到对应 DAG 子图 / 节点 / 工具链</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>意图 → 动作映射（Stage3 路由表）</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>意图</th><th>路由目标</th><th>触发态</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">CONFIG_TOOL/SKILL/TASK/AGENT</span></td><td>配置态子图（向导 4 步）</td><td>配置态</td></tr>
+          <tr><td><span class="mono">RUN_PROBE_REQUEST</span></td><td><span class="mono">knowledge_load → plan_subtasks</span></td><td>运行态</td></tr>
+          <tr><td><span class="mono">QUERY_RESULT</span></td><td><span class="mono">probe_run</span> 查询工具链</td><td>运行态</td></tr>
+          <tr><td><span class="mono">FOLLOW_UP</span></td><td>复用当前节点上下文</td><td>运行态</td></tr>
+          <tr><td><span class="mono">HITL_RESUME</span></td><td><span class="mono">Command(resume=...)</span> 恢复中断</td><td>等待 HITL</td></tr>
+        </tbody>
+      </table></div>
+      <div class="xref">业务侧对应用户旅程见 <a href="./business-journey.html">业务旅程设计</a> 的"路由匹配"环节；枚举命名与本档 <code>§4.1</code> 完全一致。</div>
+    </section>
+
+    <!-- ============ 04 上下文架构 ============ -->
+    <section class="card" id="s4">
+      <div class="sec-head"><div class="sec-idx">04</div><h2>上下文架构（四类上下文）</h2></div>
+      <p class="lead">四类上下文按不同作用域（会话级/任务级/节点级/租户级）挂载，合成 LangGraph 的 <span class="mono">State</span> TypedDict。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>上下文分类隔离</li><li>生命周期各自独立</li><li>权限标记随行</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>四类 → State 四字段</li><li>作用域决定裁剪/常驻</li><li>消息上下文可压缩</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>State 键与四类一一对应</li><li>节点级知识随规划进出</li><li>配置上下文租户级长驻</li></ul></div>
+      </div>
+
+      <div class="diagram">
+        <div class="ctx-wrap">
+          <div class="ctx-scope" style="border-color:rgba(79,124,255,.5)"><span class="scope-lbl" style="color:var(--primary-2)">租户级 · 长驻</span>
+            <div class="ctx-grid"><div class="ctx-card c"><b>配置上下文 <span class="en">Config Context</span></b><p>Agent/Task/Skill/Tool 定义、路由规则、Gate 策略 —— 全流程只读常驻</p></div></div>
+          </div>
+          <div class="ctx-scope" style="border-color:rgba(45,212,191,.5)"><span class="scope-lbl" style="color:var(--teal)">会话级 · 可压缩</span>
+            <div class="ctx-grid"><div class="ctx-card m"><b>消息上下文 <span class="en">Message Context</span></b><p>对话消息、系统提示、工具结果 —— 经 Hot/Warm/Cold 三区压缩（见 §06）</p></div></div>
+          </div>
+          <div class="ctx-scope" style="border-color:rgba(245,181,68,.5)"><span class="scope-lbl" style="color:var(--amber)">任务级</span>
+            <div class="ctx-grid"><div class="ctx-card e"><b>执行上下文 <span class="en">Execution Context</span></b><p>DAG 状态、当前节点、变量、重试计数 —— 随任务起止</p></div></div>
+          </div>
+          <div class="ctx-scope" style="border-color:#c792ff55"><span class="scope-lbl" style="color:#c792ff">节点级 · 随规划</span>
+            <div class="ctx-grid"><div class="ctx-card k"><b>知识上下文 <span class="en">Knowledge Context</span></b><p>Planner 加载的知识片段（含来源 / 权限标记）—— 节点进出，用完可弃</p></div></div>
+          </div>
+        </div>
+        <div class="dg-caption">▲ 作用域嵌套 → 组合为 State：config(常驻) + messages(压缩) + execution(任务) + knowledge(节点)</div>
+      </div>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>上下文</th><th>英文</th><th>内容</th><th>生命周期</th><th>State 字段</th></tr></thead>
+        <tbody>
+          <tr><td>消息上下文</td><td>Message Context</td><td>对话消息、系统提示、工具结果</td><td><span class="enum teal">会话级，可压缩</span></td><td><span class="mono">messages</span></td></tr>
+          <tr><td>执行上下文</td><td>Execution Context</td><td>DAG 状态、当前节点、变量、重试计数</td><td><span class="enum">任务级</span></td><td><span class="mono">execution</span></td></tr>
+          <tr><td>知识上下文</td><td>Knowledge Context</td><td>Planner 加载的知识片段（含来源/权限标记）</td><td><span class="enum amber">节点级，随规划</span></td><td><span class="mono">knowledge</span></td></tr>
+          <tr><td>配置上下文</td><td>Config Context</td><td>Agent/Task/Skill/Tool 定义、路由规则、Gate 策略</td><td><span class="enum dim">租户级，长驻</span></td><td><span class="mono">config</span></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ============ 05 知识加载机制 ============ -->
+    <section class="card" id="s5">
+      <div class="sec-head"><div class="sec-idx">05</div><h2>知识加载机制</h2></div>
+      <p class="lead">权限三层收敛候选池（租户→Agent→Task），经 <span class="mono">knowledge.load</span> Tool 拉取，加载决策归 Planner（P5 + P2）。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>知识不全局塞入</li><li>按权限最小可见</li><li>不直连业务库</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>三层白名单收敛候选</li><li>规划期 Planner 决策</li><li>统一 <span class="mono">knowledge.load</span></li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>越权知识不入池</li><li>加载记录含来源/权限标记</li><li>加载发生在 knowledge_load 节点</li></ul></div>
+      </div>
+
+      <h3>权限作用域：候选池逐级收敛</h3>
+      <div class="diagram">
+        <div class="lifecycle">
+          <div class="lc-stage"><div class="lc-idx">SCOPE · 1</div><b>租户 Tenant</b><p>租户可见知识全集（本体/血缘/规则/标准/文档）</p></div>
+          <div class="lc-arrow">∩</div>
+          <div class="lc-stage"><div class="lc-idx">SCOPE · 2</div><b>Agent 白名单</b><p><span class="mono">agent_knowledge</span> 限定 Agent 维度</p></div>
+          <div class="lc-arrow">∩</div>
+          <div class="lc-stage"><div class="lc-idx">SCOPE · 3</div><b>Task 白名单</b><p><span class="mono">task_knowledge</span> 限定子活动维度</p></div>
+          <div class="lc-arrow">⇒</div>
+          <div class="lc-stage" style="border-color:rgba(45,212,191,.5)"><div class="lc-idx">RESULT</div><b>候选池</b><p>仅候选池内知识对 Planner 可见</p></div>
+        </div>
+        <div class="dg-caption">▲ 三层取交集：无权限知识不进入候选池（权限控制范围，规范 §4.3）</div>
+      </div>
+
+      <h3>加载时序（Planner 主导 · 经 Tool 落地）</h3>
+      <div class="diagram">
+        <div class="seq">
+          <svg class="seq-svg" viewBox="0 0 760 300" role="img" aria-label="知识加载时序图">
+            <defs><marker id="sa" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#6ea8ff" stroke-width="1.4"/></marker></defs>
+            <!-- lifelines -->
+            <g font-family="var(--mono)" font-size="11" text-anchor="middle">
+              <rect x="30" y="10" width="120" height="30" rx="7" fill="#1d294e" stroke="#2a3766"/><text x="90" y="30" fill="#6ea8ff">knowledge_load</text>
+              <rect x="200" y="10" width="100" height="30" rx="7" fill="#1d294e" stroke="#2a3766"/><text x="250" y="30" fill="#2dd4bf">Planner</text>
+              <rect x="360" y="10" width="120" height="30" rx="7" fill="#1d294e" stroke="#2a3766"/><text x="420" y="30" fill="#f5b544">权限校验</text>
+              <rect x="540" y="10" width="130" height="30" rx="7" fill="#1d294e" stroke="#2a3766"/><text x="605" y="30" fill="#e8edff">knowledge.load Tool</text>
+            </g>
+            <g stroke="#2a3766" stroke-dasharray="3 4">
+              <line x1="90" y1="40" x2="90" y2="280"/><line x1="250" y1="40" x2="250" y2="280"/>
+              <line x1="420" y1="40" x2="420" y2="280"/><line x1="605" y1="40" x2="605" y2="280"/>
+            </g>
+            <g stroke="#6ea8ff" stroke-width="1.4" marker-end="url(#sa)" font-size="10" fill="#9fb0d9" font-family="var(--sans)">
+              <line x1="90" y1="72" x2="250" y2="72"/><text x="120" y="66" fill="#9fb0d9">1. 触发规划</text>
+              <line x1="250" y1="112" x2="420" y2="112"/><text x="270" y="106" fill="#9fb0d9">2. 按 Task 白名单请求</text>
+              <line x1="420" y1="152" x2="250" y2="152"/><text x="270" y="146" fill="#9fb0d9">3. 收敛候选池(交集)</text>
+              <line x1="250" y1="192" x2="605" y2="192"/><text x="300" y="186" fill="#9fb0d9">4. 决定加载哪些/多少 → Tool 调用</text>
+              <line x1="605" y1="232" x2="250" y2="232"/><text x="300" y="226" fill="#9fb0d9">5. 片段(含来源/权限标记)</text>
+              <line x1="250" y1="264" x2="90" y2="264"/><text x="110" y="258" fill="#9fb0d9">6. 写入 State.knowledge</text>
+            </g>
+          </svg>
+        </div>
+        <div class="dg-caption">▲ 加载非全局注入：Planner 在规划期决策，落库/取数仅经 Tool（符合 P2/P5）</div>
+      </div>
+      <div class="note p">知识类型（<span class="mono">knowledge.type</span>）固定枚举：<span class="enum dim">ONTOLOGY</span> <span class="enum dim">LINEAGE</span> <span class="enum dim">RULE</span> <span class="enum dim">STANDARD</span> <span class="enum dim">DOC</span>，见数据模型 §11。</div>
+    </section>
+
+    <!-- ============ 06 消息压缩机制 ============ -->
+    <section class="card" id="s6">
+      <div class="sec-head"><div class="sec-idx">06</div><h2>消息压缩机制</h2></div>
+      <p class="lead">消息上下文按 Hot/Warm/Cold 三区存储，五个压缩时机触发，复用 LangChain <span class="mono">trim_messages</span> 与 <span class="mono">SummarizationMiddleware</span>。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>长会话不爆上下文</li><li>关键节点留存语义</li><li>复用生态、不造轮子</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>三层分区存储</li><li>5 个压缩时机</li><li><span class="mono">trim_messages</span> token 计数</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>超阈值自动降级旧消息</li><li>系统提示常驻不被裁</li><li>冷区可检索/可嵌入</li></ul></div>
+      </div>
+
+      <div class="diagram">
+        <div class="zones">
+          <div class="zone hot"><div class="zh">热区 Hot<span class="zchip">HOT</span></div><p>最近 N 轮<strong style="color:var(--text)">原文</strong>保留，参与即时推理。<span class="mono">zone=HOT</span></p></div>
+          <div class="zone warm"><div class="zh">温区 Warm<span class="zchip">WARM</span></div><p>被裁消息<strong style="color:var(--text)">摘要</strong>回填，保留关键结论。<span class="mono">zone=WARM</span></p></div>
+          <div class="zone cold"><div class="zh">冷区 Cold<span class="zchip">COLD</span></div><p>历史<strong style="color:var(--text)">归档嵌入</strong>，按需向量检索。<span class="mono">zone=COLD</span></p></div>
+        </div>
+        <div class="dg-caption">▲ 原文 → 摘要 → 归档嵌入的单向降级；token 预算逐层压缩</div>
+      </div>
+
+      <h3>五个压缩时机（规范 §4.4）</h3>
+      <div class="enum-row">
+        <span class="enum">① 轮次阈值触发</span>
+        <span class="enum">② Token 阈值触发</span>
+        <span class="enum amber">③ 子活动切换时</span>
+        <span class="enum danger">④ HITL 中断点</span>
+        <span class="enum ok">⑤ 任务 Finish 后</span>
+      </div>
+
+      <h3>LangChain <span class="mono">trim_messages</span> 用法</h3>
+      <pre class="code"><span class="lang">python · 消息裁剪（保留最近 / 系统常驻 / token 计数）</span><span class="tok-kw">from</span> langchain_core.messages <span class="tok-kw">import</span> trim_messages
+
+trimmed = <span class="tok-fn">trim_messages</span>(
+    messages,
+    token_counter=tiktoken_counter,   <span class="tok-com"># ② Token 阈值触发</span>
+    max_tokens=<span class="tok-num">6000</span>,                 <span class="tok-com"># 预算上限</span>
+    strategy=<span class="tok-str">"last"</span>,                <span class="tok-com"># 保留最近 → 构成 Hot 区</span>
+    start_on=<span class="tok-str">"human"</span>,
+    include_system=<span class="tok-num">True</span>,             <span class="tok-com"># 系统提示常驻，不被裁</span>
+)
+<span class="tok-com"># 被裁掉的旧消息 → SummarizationMiddleware 生成摘要写回 Warm 区</span>
+<span class="tok-com"># Warm 区超预算再降级 → 归档嵌入 Cold 区；message.zone 记录分区</span></pre>
+      <div class="note t">压缩发生在特定节点边界（③④⑤），与 DAG 主干对齐：<span class="mono">execute_subtask</span> 完成、<span class="mono">gate_subtask</span> 中断、<span class="mono">finish_check</span> 通过时各触发一次。</div>
+    </section>
+
+    <!-- ============ 07 LangGraph DAG 骨架 ============ -->
+    <section class="card" id="s7">
+      <div class="sec-head"><div class="sec-idx">07</div><h2>LangGraph DAG 骨架</h2></div>
+      <p class="lead">运行态主干节点顺序逐字锚定规范 §6；<span class="mono">State</span> 为 TypedDict，含 <span class="mono">add_messages</span> reducer；HITL 用 <span class="mono">interrupt()</span> + <span class="mono">Command(resume=...)</span>。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>主干节点顺序固定</li><li>子活动可循环重试</li><li>人机协同中断可恢复</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li><span class="mono">StateGraph</span> 建图</li><li>Gate 回边循环</li><li>Checkpointer 持久化</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>节点名与本图一致</li><li>interrupt/resume 可续跑</li><li>messages reducer 正确合并</li></ul></div>
+      </div>
+
+      <div class="diagram">
+        <div class="vflow">
+          <div class="vnode"><span class="vn-idx">1</span><span class="vt"><b>router_stage1_state</b><span>状态检测</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode"><span class="vn-idx">2</span><span class="vt"><b>router_stage2_intent</b><span>意图分类</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode"><span class="vn-idx">3</span><span class="vt"><b>router_stage3_action</b><span>动作路由</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode hot"><span class="vn-idx">4</span><span class="vt"><b>knowledge_load</b><span>Planner · 知识加载</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode"><span class="vn-idx">5</span><span class="vt"><b>plan_subtasks</b><span>产出 Task 序列 = DAG</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode"><span class="vn-idx">6</span><span class="vt"><b>execute_subtask</b><span>ReAct loop · 调用 Skill→Tool</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode gate"><span class="vn-idx">7</span><span class="vt"><b>gate_subtask</b><span>LLM / HITL 判定 · ⟲ 回 execute 或前进</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#6ea8ff" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode gate"><span class="vn-idx">8</span><span class="vt"><b>finish_check</b><span>整体任务 Finish · LLM / HITL</span></span></div>
+          <div class="vconn"><svg width="16" height="18"><line x1="8" y1="0" x2="8" y2="14" stroke="#37d67a" stroke-width="1.5" marker-end="url(#ah)"/></svg></div>
+          <div class="vnode end"><span class="vn-idx">◎</span><span class="vt"><b>END</b><span>产出可运行探针 + 调度计划</span></span></div>
+        </div>
+        <div class="dg-caption">▲ 节点 6↔7 循环直到子活动完成；Gate/Finish 双判定分 LLM 判断与人工确认（HITL）</div>
+      </div>
+
+      <h3>State TypedDict（四字段 · add_messages reducer）</h3>
+      <pre class="code"><span class="lang">python · langgraph State 定义</span><span class="tok-kw">from</span> typing <span class="tok-kw">import</span> TypedDict, Annotated
+<span class="tok-kw">from</span> langchain_core.messages <span class="tok-kw">import</span> AnyMessage
+<span class="tok-kw">from</span> langgraph.graph.message <span class="tok-kw">import</span> add_messages
+
+<span class="tok-kw">class</span> <span class="tok-type">State</span>(TypedDict):
+    <span class="tok-com"># 消息上下文（会话级，可压缩）</span>
+    messages: Annotated[list[AnyMessage], add_messages]
+    <span class="tok-com"># 执行上下文：DAG 状态、当前节点、变量、重试计数</span>
+    execution: dict
+    <span class="tok-com"># 知识上下文：Planner 加载片段（含来源/权限标记）</span>
+    knowledge: list
+    <span class="tok-com"># 配置上下文：Agent/Task/Skill/Tool 定义、路由规则、Gate 策略</span>
+    config: dict</pre>
+
+      <h3>建图 + HITL（interrupt / Command.resume）</h3>
+      <pre class="code"><span class="lang">python · StateGraph 编译与人工中断恢复</span><span class="tok-kw">from</span> langgraph.graph <span class="tok-kw">import</span> StateGraph, END
+<span class="tok-kw">from</span> langgraph.checkpoint.memory <span class="tok-kw">import</span> MemorySaver
+<span class="tok-kw">from</span> langgraph.types <span class="tok-kw">import</span> interrupt, Command
+
+<span class="tok-kw">def</span> <span class="tok-fn">gate_subtask</span>(state: State):
+    <span class="tok-com"># HITL：中断等待人工确认，返回值来自 Command(resume=...)</span>
+    decision = <span class="tok-fn">interrupt</span>({
+        <span class="tok-str">"task"</span>: state[<span class="tok-str">"execution"</span>][<span class="tok-str">"current_task"</span>],
+        <span class="tok-str">"gate"</span>: <span class="tok-str">"HUMAN"</span>,
+    })
+    <span class="tok-kw">return</span> {<span class="tok-str">"execution"</span>: {**state[<span class="tok-str">"execution"</span>], <span class="tok-str">"gate_result"</span>: decision}}
+
+builder = <span class="tok-fn">StateGraph</span>(State)
+builder.add_node(<span class="tok-str">"router_stage1_state"</span>, router_stage1_state)
+builder.add_node(<span class="tok-str">"knowledge_load"</span>, knowledge_load)      <span class="tok-com"># Planner 职责 (P5)</span>
+builder.add_node(<span class="tok-str">"execute_subtask"</span>, execute_subtask)     <span class="tok-com"># ReAct loop</span>
+builder.add_node(<span class="tok-str">"gate_subtask"</span>, gate_subtask)
+<span class="tok-com"># 子活动未通过 → 回 execute_subtask；通过 → 前进 finish_check</span>
+
+graph = builder.<span class="tok-fn">compile</span>(checkpointer=<span class="tok-fn">MemorySaver</span>())  <span class="tok-com"># 生产: PostgresSaver</span>
+
+<span class="tok-com"># 运行态恢复人工中断：</span>
+graph.<span class="tok-fn">invoke</span>(<span class="tok-fn">Command</span>(resume={<span class="tok-str">"approved"</span>: <span class="tok-num">True</span>}), config={<span class="tok-str">"configurable"</span>:{<span class="tok-str">"thread_id"</span>: tid}})</pre>
+      <div class="note">Checkpointer：原型用 <span class="mono">MemorySaver</span>，生产用 <span class="mono">PostgresSaver</span>；PostgresSaver 使 HITL 中断可跨进程恢复。</div>
+    </section>
+
+    <!-- ============ 08 执行引擎 ============ -->
+    <section class="card" id="s8">
+      <div class="sec-head"><div class="sec-idx">08</div><h2>执行引擎（L2）</h2></div>
+      <p class="lead">Executor 以 ReAct 循环驱动 Skill→Tool；Planner 负责知识加载与规划；Gate 负责子活动与整体判定；失败重试与 HITL 中断内嵌其中。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>通用引擎不绑业务</li><li>失败可重试可恢复</li><li>关键节点可人工介入</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>三角色分工</li><li>ReAct 循环 + 重试计数</li><li>interrupt 挂起</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>重试上限可配</li><li>Trace 记录 Tool/LLM</li><li>Tool 落库非 Agent 直写</li></ul></div>
+      </div>
+
+      <h3>三角色职责</h3>
+      <div class="principle-grid">
+        <div class="pr"><span class="pid">Planner</span><b>规划者</b><p>知识加载（P5）、产出子活动 Task 序列 = DAG 骨架；决定加载哪些/多少知识。</p><div class="cons">节点：knowledge_load · plan_subtasks</div></div>
+        <div class="pr"><span class="pid">Executor</span><b>执行者</b><p>以 ReAct 循环执行子活动，调用 Skill→Tool；执行 Tool、观察结果、迭代。</p><div class="cons">节点：execute_subtask</div></div>
+        <div class="pr"><span class="pid">Gate</span><b>判定者</b><p>子活动结束与整体任务结束的判定；分 LLM 判断与人工确认（HITL）。</p><div class="cons">节点：gate_subtask · finish_check</div></div>
+      </div>
+
+      <h3>ReAct 执行循环</h3>
+      <div class="diagram">
+        <div class="loop-wrap">
+          <div class="loop-node think"><div class="ln-t">THOUGHT</div><b>思考</b><p style="color:var(--text-dim);font-size:12px;margin:6px 0 0">依据 knowledge + 上轮 Observation 推理下一步</p></div>
+          <div class="loop-node act"><div class="ln-t">ACTION</div><b>行动</b><p style="color:var(--text-dim);font-size:12px;margin:6px 0 0">Skill→Tool 调用（sql.execute / python.run …）</p></div>
+          <div class="loop-node obs"><div class="ln-t">OBSERVATION</div><b>观察</b><p style="color:var(--text-dim);font-size:12px;margin:6px 0 0">读取 Tool 返回，写入 Trace，判定是否收敛</p></div>
+        </div>
+        <div class="dg-caption">▲ Thought → Action → Observation 循环至子活动完成；失败则 execution.retry_count++ 直至上限</div>
+      </div>
+
+      <h3>失败恢复与 HITL 中断点</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>机制</th><th>触发条件</th><th>处理</th><th>状态字段</th></tr></thead>
+        <tbody>
+          <tr><td>Tool 失败重试</td><td>Tool 返回 error / 超时</td><td>指数退避重试，超上限转 Gate 人工</td><td><span class="mono">execution.retry_count</span></td></tr>
+          <tr><td>子活动 Gate 不通过</td><td>LLM 判定不达标</td><td>回边到 <span class="mono">execute_subtask</span> 重跑</td><td><span class="mono">execution.current_task</span></td></tr>
+          <tr><td>HITL 中断（Gate）</td><td><span class="mono">gate_policy=HUMAN/BOTH</span></td><td><span class="mono">interrupt()</span> 挂起，等待 <span class="mono">Command(resume)</span></td><td><span class="mono">State.messages</span> + checkpoint</td></tr>
+          <tr><td>HITL 中断（Finish）</td><td><span class="mono">finish_check</span> 需人工确认</td><td>同上，恢复后判定整体任务是否 Finish</td><td><span class="mono">execution.finish</span></td></tr>
+          <tr><td>意图为 HITL_RESUME</td><td>Stage2 命中恢复意图</td><td>Router 路由到 <span class="mono">Command(resume=...)</span></td><td>见 §03 路由表</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note p">全链路可观测：Tool 调用追踪 <span class="mono">tool_name/入参/出参/耗时/状态/错误</span>；LLM 调用追踪 <span class="mono">model/prompt_tokens/completion_tokens/耗时/节点名</span>（写 <span class="mono">trace</span> 表，前台 Trace 面板时间轴可视化）。</div>
+    </section>
+
+    <!-- ============ 09 业务资产管理设计 ============ -->
+    <section class="card" id="s9">
+      <div class="sec-head"><div class="sec-idx">09</div><h2>业务资产管理设计</h2></div>
+      <p class="lead">标准→规则→探针 为一等产出物（P3），可版本化、可审计、可复用；与 Agent/Task/Skill/Tool/Knowledge 编排资产分层共存。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>产出物独立于会话</li><li>状态可流转可追溯</li><li>可版本回滚复用</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>Standard→Rule→Probe 链</li><li>status 枚举驱动</li><li>经 Tool 落库（P2）</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>探针有 version 与状态</li><li>状态仅 3 值</li><li>编排层级基数一致</li></ul></div>
+      </div>
+
+      <h3>产出物生命周期（Standard → Rule → Probe）</h3>
+      <div class="diagram">
+        <div class="lifecycle">
+          <div class="lc-stage"><div class="lc-idx">ASSET · A</div><b>Standard 标准</b><p>data_type=STRUCTURED/MULTIMODAL；domain + version</p></div>
+          <div class="lc-arrow">→</div>
+          <div class="lc-stage"><div class="lc-idx">ASSET · B</div><b>Rule 规则</b><p>standard_id 关联；dimension + expression + status</p></div>
+          <div class="lc-arrow">→</div>
+          <div class="lc-stage" style="border-color:rgba(45,212,191,.5)"><div class="lc-idx">ASSET · C</div><b>Probe 探针</b><p>type=SQL/PYTHON；code + status + datasource_id</p></div>
+          <div class="lc-arrow">→</div>
+          <div class="lc-stage" style="border-color:rgba(55,214,122,.5)"><div class="lc-idx">RUN</div><b>ProbeRun 运行</b><p>started_at/finished_at/status/result_json</p></div>
+        </div>
+        <div class="dg-caption">▲ 逐级向下传递；规则维度枚举固定：<span class="mono">完整性/准确性/一致性/及时性/唯一性/有效性</span></div>
+      </div>
+
+      <h3>Probe 状态机（status 枚举 · 规范 §5）</h3>
+      <div class="diagram">
+        <div class="lifecycle">
+          <div class="lc-stage" style="border-color:rgba(245,181,68,.4)"><div class="lc-idx">① </div><b>DRAFT</b><p>AI 生成的草稿探针，未验证可运行性</p></div>
+          <div class="lc-arrow">→ 试跑 sql.execute/python.run 通过 →</div>
+          <div class="lc-stage" style="border-color:rgba(45,212,191,.4)"><div class="lc-idx">② </div><b>RUNNABLE</b><p>已验证可运行，等待接入调度</p></div>
+          <div class="lc-arrow">→ probe.schedule 注册 →</div>
+          <div class="lc-stage" style="border-color:rgba(55,214,122,.5)"><div class="lc-idx">③ </div><b>SCHEDULED</b><p>已绑定调度计划，周期运行回写</p></div>
+        </div>
+        <div class="enum-row" style="margin-top:14px;justify-content:center">
+          <span class="enum amber">DRAFT</span><span class="enum teal">RUNNABLE</span><span class="enum ok">SCHEDULED</span>
+        </div>
+        <div class="dg-caption">▲ 三态单向推进（可回退版本）；每次状态变更可审计（P3）</div>
+      </div>
+
+      <h3>编排资产层级（Agent/Task/Skill/Tool/Knowledge · 规范 §2）</h3>
+      <div class="rel-list">
+        <span class="rel"><b>Agent</b> <span class="card-num">1—N</span> <b>Task</b></span>
+        <span class="rel"><b>Task</b> <span class="card-num">1—N</span> <b>Skill</b></span>
+        <span class="rel"><b>Skill</b> <span class="card-num">1—N</span> <b>Tool</b></span>
+        <span class="rel"><b>Agent</b> <span class="card-num">1—N</span> <b>Knowledge</b> <span style="opacity:.6">(Agent 维度白名单)</span></span>
+        <span class="rel"><b>Task</b> <span class="card-num">1—N</span> <b>Knowledge</b> <span style="opacity:.6">(Task 维度白名单)</span></span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>层级</th><th>含义</th><th>基数</th><th>绑定关系</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">Agent</span></td><td>业务活动</td><td>1</td><td>1:N Task；1:N Knowledge</td></tr>
+          <tr><td><span class="mono">Task</span></td><td>子业务活动</td><td>N</td><td>1:N Skill；1:N Knowledge（经 <span class="mono">task_knowledge</span>）</td></tr>
+          <tr><td><span class="mono">Skill</span></td><td>能力包</td><td>N</td><td>1:N Tool（经 <span class="mono">skill_tool</span>）+ prompt_template</td></tr>
+          <tr><td><span class="mono">Tool</span></td><td>原子能力</td><td>N</td><td>category=<span class="mono">BUILTIN/REGISTERED</span></td></tr>
+          <tr><td><span class="mono">Knowledge</span></td><td>允许加载的知识</td><td>N</td><td>type 五枚举 + permission_tag</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note t">基数口径：父 → 1:N → 子。一个 Agent 含 N 个 Task，一个 Task 含 N 个 Skill，一个 Skill 含 N 个 Tool；Agent 与 Task 各自可挂 N 个 Knowledge。</div>
+    </section>
+
+    <!-- ============ 10 Skill 披露 & Tool 注册 ============ -->
+    <section class="card" id="s10">
+      <div class="sec-head"><div class="sec-idx">10</div><h2>Skill 渐进披露 &amp; Tool 注册</h2></div>
+      <p class="lead">Skill 按 L0/L1/L2 逐级展开省上下文（§7.1）；Tool 分内置与开放注册两类，注册经 <span class="mono">tool.register</span> 网关带鉴权/限流/版本（§7.2）。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>能力包按需注入</li><li>外接能力可治理</li><li>降低上下文膨胀</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>渐进披露 3 级</li><li>内置随开租注入</li><li>注册经网关</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>默认仅注入 L0</li><li>命中后逐级展开</li><li>注册 Tool 有版本/限流</li></ul></div>
+      </div>
+
+      <h3>Skill 渐进披露（Progressive Disclosure · §7.1）</h3>
+      <div class="diagram">
+        <div class="disc">
+          <div class="disc-lvl l0"><div class="dl">L0</div><div><b>元数据 Metadata</b><span>仅 name/description，用于路由与选择 —— <strong style="color:var(--ok)">默认注入</strong></span></div></div>
+          <div class="disc-lvl l1"><div class="dl">L1</div><div><b>摘要 Summary</b><span>能力说明 + 所需 Tool 列表 —— 命中 Skill 后展开</span></div></div>
+          <div class="disc-lvl l2"><div class="dl">L2</div><div><b>完整 Full</b><span>Prompt 模板 + Tool schema + 示例 —— 执行前展开</span></div></div>
+        </div>
+        <div class="dg-caption">▲ 默认只注入 L0，命中后逐级展开，节省上下文预算（配合 §06 压缩）</div>
+      </div>
+      <div class="note p">披露层级落库字段：<span class="mono">skill.disclosure_level</span>；配置态"Skill 编写"步骤即设置该层级。</div>
+
+      <h3>Tool 注册：内置 vs 开放注册（§7.2）</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>类别</th><th>category</th><th>来源</th><th>接入方式</th></tr></thead>
+        <tbody>
+          <tr><td>内置 Tool</td><td><span class="mono">BUILTIN</span></td><td>平台提供，随租户开租注入</td><td>开箱可用，无需注册</td></tr>
+          <tr><td>开放注册 Tool</td><td><span class="mono">REGISTERED</span></td><td>用户/开发者按 OpenAPI/Schema 注册</td><td>经 <span class="mono">tool.register</span> 网关（鉴权 + 限流 + 版本）</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>内置 Tool 清单（规范 §7.2 · 典型）</h3>
+      <div class="enum-row">
+        <span class="enum teal">ontology.lookup</span>
+        <span class="enum teal">lineage.query</span>
+        <span class="enum amber">knowledge.load</span>
+        <span class="enum">sql.execute</span>
+        <span class="enum">python.run</span>
+        <span class="enum ok">probe.upsert</span>
+        <span class="enum ok">probe.schedule</span>
+        <span class="enum dim">datasource.list</span>
+        <span class="enum dim">standard.list</span>
+        <span class="enum dim">rule.list</span>
+      </div>
+      <div class="diagram">
+        <div class="lifecycle">
+          <div class="lc-stage"><div class="lc-idx">STEP 1</div><b>提交 Schema</b><p>OpenAPI/JSON Schema：入参出参</p></div>
+          <div class="lc-arrow">→</div>
+          <div class="lc-stage"><div class="lc-idx">STEP 2</div><b>tool.register 网关</b><p>校验 schema + 生成 tool.id</p></div>
+          <div class="lc-arrow">→</div>
+          <div class="lc-stage" style="border-color:rgba(245,181,68,.5)"><div class="lc-idx">STEP 3</div><b>治理绑定</b><p>鉴权 · 限流 · 版本</p></div>
+          <div class="lc-arrow">→</div>
+          <div class="lc-stage" style="border-color:rgba(55,214,122,.5)"><div class="lc-idx">STEP 4</div><b>纳入 Tool 池</b><p>可被 Skill 组合、被 Executor 调用</p></div>
+        </div>
+        <div class="dg-caption">▲ 开放注册链路；<span class="mono">tool.kind</span>=<span class="mono">KNOWLEDGE/SQL/PYTHON/QUERY/IO</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 11 数据模型和 ORM ============ -->
+    <section class="card" id="s11">
+      <div class="sec-head"><div class="sec-idx">11</div><h2>数据模型和 ORM</h2></div>
+      <p class="lead">全实体清单逐字对齐规范 §5；SQLAlchemy 2.0（Declarative, async）建模，Alembic 迁移；探针/规则/标准为独立一等资产（P3）。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>实体与表名固定</li><li>枚举字段强约束</li><li>业务数据经 Tool 落库</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>Declarative + Mapped</li><li>async engine (asyncpg)</li><li>Alembic 版本迁移</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>表名/字段与 §5 一致</li><li>status/type 用 Enum</li><li>FK 关系可导航</li></ul></div>
+      </div>
+
+      <h3>实体 / 表 / 关键字段（规范 §5）</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>实体</th><th>表名</th><th>关键字段</th></tr></thead>
+        <tbody>
+          <tr><td>租户 Tenant</td><td><span class="mono">tenant</span></td><td>id, name, status, provisioned_at</td></tr>
+          <tr><td>Agent</td><td><span class="mono">agent</span></td><td>id, tenant_id, name, business_activity, description, <span class="mono">status(PUBLISHED/DRAFT)</span>, created_by</td></tr>
+          <tr><td>Task</td><td><span class="mono">task</span></td><td>id, agent_id, name, goal, order_index, <span class="mono">gate_policy(LLM/HUMAN/BOTH)</span></td></tr>
+          <tr><td>Knowledge</td><td><span class="mono">knowledge</span></td><td>id, name, <span class="mono">type(ONTOLOGY/LINEAGE/RULE/STANDARD/DOC)</span>, scope, permission_tag</td></tr>
+          <tr><td>TaskKnowledge</td><td><span class="mono">task_knowledge</span></td><td>task_id, knowledge_id</td></tr>
+          <tr><td>Skill</td><td><span class="mono">skill</span></td><td>id, task_id, name, description, prompt_template, disclosure_level</td></tr>
+          <tr><td>Tool</td><td><span class="mono">tool</span></td><td>id, name, <span class="mono">category(BUILTIN/REGISTERED)</span>, <span class="mono">kind(KNOWLEDGE/SQL/PYTHON/QUERY/IO)</span>, schema_json</td></tr>
+          <tr><td>SkillTool</td><td><span class="mono">skill_tool</span></td><td>skill_id, tool_id</td></tr>
+          <tr><td>Standard</td><td><span class="mono">standard</span></td><td>id, name, domain, <span class="mono">data_type(STRUCTURED/MULTIMODAL)</span>, version</td></tr>
+          <tr><td>Rule</td><td><span class="mono">rule</span></td><td>id, standard_id, name, dimension, expression, status</td></tr>
+          <tr><td>Probe</td><td><span class="mono">probe</span></td><td>id, rule_id, <span class="mono">type(SQL/PYTHON)</span>, code, <span class="mono">status(DRAFT/RUNNABLE/SCHEDULED)</span>, datasource_id</td></tr>
+          <tr><td>Datasource</td><td><span class="mono">datasource</span></td><td>id, name, db_type, connection_ref</td></tr>
+          <tr><td>ProbeRun</td><td><span class="mono">probe_run</span></td><td>id, probe_id, started_at, finished_at, status, result_json</td></tr>
+          <tr><td>Message</td><td><span class="mono">message</span></td><td>id, session_id, role, content, <span class="mono">zone(HOT/WARM/COLD)</span>, token_count</td></tr>
+          <tr><td>Trace</td><td><span class="mono">trace</span></td><td>id, session_id, node, <span class="mono">call_type(LLM/TOOL)</span>, payload_json, latency_ms</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>关键关系</h3>
+      <div class="rel-list">
+        <span class="rel"><b>tenant</b> 1—N <b>agent</b></span>
+        <span class="rel"><b>agent</b> 1—N <b>task</b></span>
+        <span class="rel"><b>task</b> 1—N <b>skill</b></span>
+        <span class="rel"><b>skill</b> N—N <b>tool</b> <span style="opacity:.6">(skill_tool)</span></span>
+        <span class="rel"><b>task</b> N—N <b>knowledge</b> <span style="opacity:.6">(task_knowledge)</span></span>
+        <span class="rel"><b>standard</b> 1—N <b>rule</b></span>
+        <span class="rel"><b>rule</b> 1—N <b>probe</b></span>
+        <span class="rel"><b>probe</b> N—1 <b>datasource</b></span>
+        <span class="rel"><b>probe</b> 1—N <b>probe_run</b></span>
+        <span class="rel"><b>message/trace</b> 依 session_id 归档</span>
+      </div>
+
+      <h3>ER 图（核心资产链 · 纯 CSS/SVG 关系标注）</h3>
+      <div class="diagram">
+        <div class="er-grid">
+          <div class="er-ent er-core"><div class="eh">Standard <span class="tbl">standard</span></div><ul><li><span class="pk">PK</span> id</li><li>name · domain</li><li>data_type · version</li></ul></div>
+          <div class="er-ent er-core"><div class="eh">Rule <span class="tbl">rule</span></div><ul><li><span class="pk">PK</span> id</li><li><span class="fk">FK</span> standard_id</li><li>dimension · status</li></ul></div>
+          <div class="er-ent er-core"><div class="eh">Probe <span class="tbl">probe</span></div><ul><li><span class="pk">PK</span> id</li><li><span class="fk">FK</span> rule_id</li><li><span class="fk">FK</span> datasource_id</li><li>type · status · code</li></ul></div>
+          <div class="er-ent"><div class="eh">ProbeRun <span class="tbl">probe_run</span></div><ul><li><span class="pk">PK</span> id</li><li><span class="fk">FK</span> probe_id</li><li>started_at · status</li></ul></div>
+          <div class="er-ent"><div class="eh">Agent <span class="tbl">agent</span></div><ul><li><span class="pk">PK</span> id</li><li><span class="fk">FK</span> tenant_id</li><li>status(PUBLISHED/DRAFT)</li></ul></div>
+          <div class="er-ent"><div class="eh">Task <span class="tbl">task</span></div><ul><li><span class="pk">PK</span> id</li><li><span class="fk">FK</span> agent_id</li><li>gate_policy · order_index</li></ul></div>
+          <div class="er-ent"><div class="eh">Skill <span class="tbl">skill</span></div><ul><li><span class="pk">PK</span> id</li><li><span class="fk">FK</span> task_id</li><li>disclosure_level</li></ul></div>
+          <div class="er-ent"><div class="eh">Tool <span class="tbl">tool</span></div><ul><li><span class="pk">PK</span> id</li><li>category · kind</li><li>schema_json</li></ul></div>
+          <div class="er-ent"><div class="eh">Knowledge <span class="tbl">knowledge</span></div><ul><li><span class="pk">PK</span> id</li><li>type · permission_tag</li></ul></div>
+          <div class="er-ent"><div class="eh">Message <span class="tbl">message</span></div><ul><li><span class="pk">PK</span> id</li><li>session_id · zone</li><li>role · token_count</li></ul></div>
+          <div class="er-ent"><div class="eh">Trace <span class="tbl">trace</span></div><ul><li><span class="pk">PK</span> id</li><li>session_id · node</li><li>call_type · latency_ms</li></ul></div>
+        </div>
+        <div class="dg-caption">▲ 高亮三实体为产出物主链（Standard→Rule→Probe，P3）；FK 青色、PK 琥珀色标注</div>
+      </div>
+
+      <h3>SQLAlchemy 2.0 代表模型（async · Declarative）</h3>
+      <pre class="code"><span class="lang">python · SQLAlchemy 2.0 Declarative（异步）</span><span class="tok-kw">import</span> enum
+<span class="tok-kw">from</span> sqlalchemy.orm <span class="tok-kw">import</span> DeclarativeBase, Mapped, mapped_column, relationship
+<span class="tok-kw">from</span> sqlalchemy <span class="tok-kw">import</span> String, Text, Integer, ForeignKey, JSON
+<span class="tok-kw">from</span> sqlalchemy.dialects.postgresql <span class="tok-kw">import</span> ENUM
+
+<span class="tok-kw">class</span> <span class="tok-type">Base</span>(DeclarativeBase): ...
+
+<span class="tok-kw">class</span> <span class="tok-type">ProbeStatus</span>(str, enum.Enum):
+    DRAFT=<span class="tok-str">"DRAFT"</span>; RUNNABLE=<span class="tok-str">"RUNNABLE"</span>; SCHEDULED=<span class="tok-str">"SCHEDULED"</span>
+
+<span class="tok-kw">class</span> <span class="tok-type">Probe</span>(Base):
+    __tablename__ = <span class="tok-str">"probe"</span>
+    id:            Mapped[Integer]   = <span class="tok-fn">mapped_column</span>(primary_key=<span class="tok-num">True</span>)
+    rule_id:       Mapped[Integer]   = <span class="tok-fn">mapped_column</span>(ForeignKey(<span class="tok-str">"rule.id"</span>))
+    type:          Mapped[str]       = <span class="tok-fn">mapped_column</span>(String(<span class="tok-num">16</span>))   <span class="tok-com"># SQL / PYTHON</span>
+    code:          Mapped[str]       = <span class="tok-fn">mapped_column</span>(Text)
+    status:        Mapped[ProbeStatus] = <span class="tok-fn">mapped_column</span>(
+        ENUM(ProbeStatus, name=<span class="tok-str">"probe_status"</span>), default=ProbeStatus.DRAFT)
+    datasource_id: Mapped[Integer]   = <span class="tok-fn">mapped_column</span>(ForeignKey(<span class="tok-str">"datasource.id"</span>))
+    runs: Mapped[list[<span class="tok-str">"ProbeRun"</span>]] = <span class="tok-fn">relationship</span>(back_populates=<span class="tok-str">"probe"</span>)
+
+<span class="tok-com"># 异步引擎：create_async_engine("postgresql+asyncpg://...")</span>
+<span class="tok-com"># 业务数据落库一律经 Tool（probe.upsert），Agent 不直写（P2）</span></pre>
+      <div class="note"><span class="mono">Alembic</span> 迁移：所有 status/type/category 用数据库级 Enum，重命名走 <span class="mono">op.execute</span> 改类型；每次生成 revision 与 <span class="mono">version</span> 资产字段一同审计。</div>
+    </section>
+
+    <!-- ============ 12 技术栈 ============ -->
+    <section class="card" id="s12">
+      <div class="sec-head"><div class="sec-idx">12</div><h2>技术栈</h2></div>
+      <p class="lead">选型逐字对齐规范 §8；每项附一句选型理由，体现 P4「执行器用现成工具」的复用取向。</p>
+      <div class="triad">
+        <div class="tri req"><span class="t">需求</span><ul><li>复用成熟生态</li><li>异步 & 类型安全</li><li>原型零构建可跑</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri design"><span class="t">设计</span><ul><li>LangGraph+LangChain</li><li>SQLAlchemy async + Pydantic v2</li><li>Postgres + Redis</li></ul></div>
+        <div class="tri-arrow">→</div>
+        <div class="tri accept"><span class="t">验收口径</span><ul><li>栈与本表一致</li><li>不重复造轮子</li><li>原型可 Mock 外部系统</li></ul></div>
+      </div>
+
+      <div class="table-wrap"><table>
+        <thead><tr><th>层</th><th>选型</th><th>选型理由</th></tr></thead>
+        <tbody>
+          <tr><td>后端运行时</td><td><span class="mono">Python 3.11</span></td><td>LLM/数据生态最丰富；3.11 性能与 ExceptionGroup 利于异步编排</td></tr>
+          <tr><td>Web 框架</td><td><span class="mono">FastAPI + Uvicorn</span></td><td>异步原生、Pydantic 一体、自动 OpenAPI 契合 Tool schema</td></tr>
+          <tr><td>Agent 编排</td><td><span class="mono">LangGraph 0.2+</span></td><td>StateGraph + interrupt/Command 原生支持 DAG 与 HITL（§06/§07）</td></tr>
+          <tr><td>LLM 生态</td><td><span class="mono">LangChain 0.3+</span></td><td>trim_messages / tool calling 直接复用（P4）</td></tr>
+          <tr><td>ORM</td><td><span class="mono">SQLAlchemy 2.0 (async) + Alembic</span></td><td>Mapped 类型安全、asyncpg 高性能、迁移可版本化审计</td></tr>
+          <tr><td>校验</td><td><span class="mono">Pydantic v2</span></td><td>Rust 内核快；与 Tool/State schema 同构</td></tr>
+          <tr><td>数据库</td><td><span class="mono">PostgreSQL 16</span></td><td>JSON 承载 schema/result；PostgresSaver 复用同库</td></tr>
+          <tr><td>缓存/消息</td><td><span class="mono">Redis 7</span></td><td>热区消息 / 限流计数 / 任务队列缓冲</td></tr>
+          <tr><td>调度</td><td><span class="mono">APScheduler / Celery Beat</span></td><td>探针周期调度（probe.schedule）直接落地，不造轮子</td></tr>
+          <tr><td>可观测</td><td><span class="mono">OpenTelemetry + 自研 Trace</span></td><td>标准 span + trace 表承载 LLM/Tool 业务级追踪</td></tr>
+          <tr><td>前端</td><td><span class="mono">React 18 + TS + Vite + Tailwind</span></td><td>类型安全 SPA；Tailwind 契合设计系统变量</td></tr>
+          <tr><td>原型实现</td><td><span class="mono">纯 HTML/CSS/JS（无构建，Mock 外部系统）</span></td><td>离线可演示；Mock 本体/血缘/LLM/数据源/探针/调度</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note t">外部系统在原型期以独立 Mock 模块实现（<span class="mono">MockOntology · MockLineage · MockLLM · MockDatasource · MockProbeRunner · MockScheduler</span>），带延迟与模拟日志，端到端剧本可一键跑通。</div>
+      <div class="xref">端到端剧本、业务活动样例（S1~S5）与用户情绪曲线请见 <a href="./business-journey.html">业务旅程设计文档</a>；命名（意图枚举 / 状态枚举 / 表名）与本档及 SSOT <code>dq-agent-spec</code> 完全一致。</div>
+    </section>
+
+    <footer style="margin-top:34px; padding-top:18px; border-top:1px solid var(--line); color:var(--text-dim); font-size:12.5px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+      <span>数据质量 Agent · 架构设计文档 · v1.0 · 2026-10-11</span>
+      <span class="mono">SSOT: dq-agent-spec.md · 单文件离线可阅</span>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+// 平滑滚动 + 侧栏高亮（原生 classic script，无 ES module）
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a[href^="#"]'));
+  var map = {};
+  links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+
+  function setActive(id) {
+    links.forEach(function (a) { a.classList.remove('active'); });
+    if (map[id]) {
+      map[id].classList.add('active');
+      // 让激活项在侧栏内可见
+      var sb = document.querySelector('.sidebar');
+      var el = map[id];
+      if (sb && el) {
+        var er = el.getBoundingClientRect(), sr = sb.getBoundingClientRect();
+        if (er.top < sr.top || er.bottom > sr.bottom) {
+          el.scrollIntoView({ block: 'nearest' });
+        }
+      }
+    }
+  }
+
+  // 平滑滚动到锚点（带侧栏不遮挡）
+  document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      var id = a.getAttribute('href').slice(1);
+      if (!id) return;
+      var target = document.getElementById(id);
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setActive(id);
+        if (id !== 'top') history.replaceState(null, '', '#' + id);
+      }
+    });
+  });
+
+  // IntersectionObserver 高亮当前可见章节
+  if ('IntersectionObserver' in window) {
+    var sections = Array.prototype.slice.call(document.querySelectorAll('section.card'));
+    var visible = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { visible[en.target.id] = en.isIntersecting; });
+      // 取最靠上且可见的章节
+      for (var i = 0; i < sections.length; i++) {
+        if (visible[sections[i].id]) { setActive(sections[i].id); break; }
+      }
+    }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+    sections.forEach(function (s) { io.observe(s); });
+  }
+
+  // 初始定位
+  if (location.hash && map[location.hash.slice(1)]) setActive(location.hash.slice(1));
+  else setActive('s1');
+})();
+</script>
+</body>
+</html>
